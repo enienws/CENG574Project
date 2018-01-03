@@ -6,6 +6,7 @@ import numpy.ma as ma
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+
 def ReadJSON():
     with open("/home/engin/Documents/MSc/CENG574/featuresTiny.json", "r") as fileHandle:
         content = fileHandle.read()
@@ -60,10 +61,14 @@ def SplitData():
 
     #Split the images as their classes
     imagesOfClasses =[]
+    namesOfClasses = []
+    idsOfClasses = []
     for i in range(0,2000, 40):
         imagesOfSingleClass = []
         for jsonImage in jsonImages[i:i + 40]:
             imagesOfSingleClass.append(jsonImage["features"])
+        namesOfClasses.append(jsonImages[i:i+40][0]["class_name"])
+        idsOfClasses.append(jsonImages[i:i + 40][0]["class_id"])
         imagesOfClasses.append(imagesOfSingleClass)
 
     #Split images as train and test data
@@ -73,7 +78,8 @@ def SplitData():
         train.append(imagesOfClass[0:28])
         test.append(imagesOfClass[28:40])
 
-    return (train, test)
+    return (train, test, namesOfClasses, idsOfClasses)
+
 
 def ExtractLabelsForClasses(model):
     classLabels = []
@@ -146,7 +152,11 @@ if __name__ == "__main__":
     # Plot3D(reduced_data)
 
     #split the data as train and test
-    (train, test) = SplitData()
+    (train, test, namesOfClasses, idsOfClasses) = SplitData()
+
+    #Print class names and ids
+    for (names, ids) in zip(namesOfClasses, idsOfClasses):
+        print("{}:{}".format(names, ids))
 
     #Create an np array from train data
     train_np = np.array(train, ndmin=2).reshape((1400, 2048))
@@ -154,6 +164,9 @@ if __name__ == "__main__":
 
     #Run kmeans algorithm
     kmeans_model = KMeans(n_clusters=40, random_state=0).fit(train_np)
+    #print the labels
+    for i in range(0,1400, 28):
+        print(kmeans_model.labels_[i:i + 28])
 
     #Test the model
     accuracy = TestModel(kmeans_model, test_np)
