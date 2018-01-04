@@ -5,7 +5,8 @@ import numpy as np
 import numpy.ma as ma
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-
+import os
+from shutil import copyfile
 
 def ReadJSON():
     with open("/home/engin/Documents/MSc/CENG574/featuresTiny.json", "r") as fileHandle:
@@ -28,7 +29,7 @@ def ReadJSON():
             counter = counter + 1
 
 def ReadJSON2():
-    with open("/home/engin/Documents/MSc/CENG574/featuresTiny.json", "r") as fileHandle:
+    with open("/home/engin/Documents/CENG574Project/featuresTiny.json", "r") as fileHandle:
         content = fileHandle.read()
     jsonObj = json.loads(content)
     jsonImages = jsonObj["images"]
@@ -54,31 +55,43 @@ def ReadJSON2():
     return features
 
 def SplitData():
-    with open("/home/engin/Documents/MSc/CENG574/featuresTiny.json", "r") as fileHandle:
+    with open("/home/engin/Documents/CENG574Project/featuresTiny.json", "r") as fileHandle:
         content = fileHandle.read()
     jsonObj = json.loads(content)
     jsonImages = jsonObj["images"]
 
     #Split the images as their classes
     imagesOfClasses =[]
+    pathsOfClasses = []
     namesOfClasses = []
     idsOfClasses = []
     for i in range(0,2000, 40):
         imagesOfSingleClass = []
+        pathsOfSingleClass = []
         for jsonImage in jsonImages[i:i + 40]:
             imagesOfSingleClass.append(jsonImage["features"])
+            pathsOfSingleClass.append(jsonImage["path"])
         namesOfClasses.append(jsonImages[i:i+40][0]["class_name"])
         idsOfClasses.append(jsonImages[i:i + 40][0]["class_id"])
         imagesOfClasses.append(imagesOfSingleClass)
+        pathsOfClasses.append(pathsOfSingleClass)
 
     #Split images as train and test data
     train = []
     test = []
+
     for imagesOfClass in imagesOfClasses:
         train.append(imagesOfClass[0:28])
         test.append(imagesOfClass[28:40])
 
-    return (train, test, namesOfClasses, idsOfClasses)
+    train_paths = []
+    test_paths = []
+    for pathsOfClass in pathsOfClasses:
+        train_paths.append(pathsOfClass[0:28])
+        test_paths.append(pathsOfClass[28:40])
+
+
+    return (train, test, namesOfClasses, idsOfClasses, train_paths, test_paths)
 
 
 def ExtractLabelsForClasses(model):
@@ -88,17 +101,33 @@ def ExtractLabelsForClasses(model):
         classLabels.append(label)
     return classLabels
 
-def TestModel(model, testData):
+def GetWrongPaths(paths, booleanArray):
+    wrongPaths = []
+    for (path,boolean) in zip(paths, booleanArray):
+        if not boolean:
+            wrongPaths.append(path)
+    return wrongPaths
+
+def CpWrong(wrongPaths, classLabel):
+    os.mkdir(os.path.dirname("./" + str(classLabel) + "/"))
+    for wrongPath in wrongPaths:
+        dest = "./" + str(classLabel) + "/" + os.path.basename(wrongPath)
+        copyfile(wrongPath, dest)
+
+def TestModel(model, testData, pathsOfTest):
     totalCorrects = 0
     classCounter = 0
     classLabels = ExtractLabelsForClasses(model)
     for i in range(0,600, 12):
         imageForClass = testData[i:i+12]
+        subsetPaths = pathsOfTest[classCounter]
         result = model.predict(imageForClass)
+        #wrongPaths = GetWrongPaths(subsetPaths, result == classLabels[classCounter])
+        #CpWrong(wrongPaths, classCounter)
         result = result[result == classLabels[classCounter]]
         totalCorrects = totalCorrects + result.shape[0]
         classCounter = classCounter + 1
-    return totalCorrects / 600
+    return totalCorrects / 600.0
 
 
 
@@ -141,6 +170,22 @@ def Plot3D(data):
 
     return None
 
+def FindMisclassified(model):
+    # print the labels
+    currentClass = 0
+    for i in range(0, 1400, 28):
+        currentLabels = kmeans_model.labels_[i:i + 28]
+        currentClass = currentClass + 1
+
+def CreteDirectory(clusterID):
+    file_path = "./" + str(clusterID) + "/"
+    directory = os.path.dirname(file_path)
+    try:
+        os.stat(directory)
+    except:
+        os.mkdir(directory)
+    return file_path
+
 if __name__ == "__main__":
     # features = ReadJSON2()
     # reduced_data = PCA(n_components=3).fit_transform(features)
@@ -152,7 +197,7 @@ if __name__ == "__main__":
     # Plot3D(reduced_data)
 
     #split the data as train and test
-    (train, test, namesOfClasses, idsOfClasses) = SplitData()
+    (train, test, namesOfClasses, idsOfClasses, pathsOfTrain, pathsOfTest) = SplitData()
 
     #Print class names and ids
     for (names, ids) in zip(namesOfClasses, idsOfClasses):
@@ -163,16 +208,30 @@ if __name__ == "__main__":
     test_np = np.array(test, ndmin=2).reshape((600, 2048))
 
     #Run kmeans algorithm
-    kmeans_model = KMeans(n_clusters=40, random_state=0).fit(train_np)
+    kmeans_model = KMeans(n_clusters=50, random_state=10, max_iter=300).fit(train_np)
+
+    #Extract the labels
+    labels = ExtractLabelsForClasses(kmeans_model)
     #print the labels
-    for i in range(0,1400, 28):
-        print(kmeans_model.labels_[i:i + 28])
+    for (i, label, id) in zip(range(0,1400, 28), labels, idsOfClasses):
+        #print(kmeans_model.labels_[i:i + 28])
+        print(label)
+        print id
+
+    classCounter = 0
+    for (i, train) in zip(range(0,1400, 28), pathsOfTrain):
+        labels = kmeans_model.labels_[i:i + 28]
+        paths = pathsOfTrain[classCounter]
+        for (label, path) in zip(labels, paths):
+            destPath = CreteDirectory(label)
+            copyfile(path, destPath + os.path.basename(path))
+        classCounter = classCounter + 1
+
+
 
     #Test the model
-    accuracy = TestModel(kmeans_model, test_np)
+    accuracy = TestModel(kmeans_model, test_np, pathsOfTest)
     print("Accuracy: {}".format(accuracy))
 
 
     a = 1
-
-
